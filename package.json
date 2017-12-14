@@ -1,5 +1,5 @@
 {
-  "name": "koa-cas-authentication",
+  "name": "koa2-cas-authentication",
   "version": "1.0.1",
   "description": "A CAS authentication library designed to be used as middleware for an Express server.",
   "keywords": [
@@ -8,9 +8,7 @@
     "saml",
     "auth",
     "authentication",
-    "login",
-    "middleware",
-    "express"
+    "koa"
   ],
   "license": "MIT",
   "main": "index.js",
