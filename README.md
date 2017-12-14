@@ -10,7 +10,7 @@
 
 ````javascript
 // variable declaration
-const CasAuthentication = require('koa-cas-authentication');
+const CasAuthentication = require('koa2-cas-authentication');
 
 const casConfig = require('../config/cas');
 
