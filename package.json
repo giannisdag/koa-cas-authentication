@@ -1,6 +1,6 @@
 {
   "name": "koa2-cas-authentication",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A CAS authentication library designed to be used as middleware for an Express server.",
   "keywords": [
     "cas",
