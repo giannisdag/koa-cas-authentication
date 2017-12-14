@@ -1,8 +1,9 @@
-var url           = require('url'),
+const url         = require('url'),
     http          = require('http'),
     https         = require('https'),
     parseXML      = require('xml2js').parseString,
     XMLprocessors = require('xml2js/lib/processors');
+    request       = require('request-promise');
 
 /**
  * The CAS authentication types.
@@ -40,9 +41,9 @@ function CASAuthentication(options) {
     if (options.cas_url === undefined) {
         throw new Error('CAS Authentication requires a cas_url parameter.');
     }
-    if (options.service_url === undefined) {
-        throw new Error( 'CAS Authentication requires a service_url parameter.');
-    }
+    // if (options.service_url === undefined) {
+    //     throw new Error( 'CAS Authentication requires a service_url parameter.');
+    // }
 
     this.cas_version = options.cas_version !== undefined ? options.cas_version : '3.0';
 
@@ -175,10 +176,10 @@ function CASAuthentication(options) {
  * already validated with CAS, their request will be redirected to the CAS
  * login page.
  */
-CASAuthentication.prototype.bounce = async function(ctx, next) {
+CASAuthentication.prototype.bounce = async function(ctx) {
 
     // Handle the request with the bounce authorization type.
-    await this._handle(ctx, next, AUTH_TYPE.BOUNCE);
+    return this._handle(ctx, AUTH_TYPE.BOUNCE);
 };
 
 /**
@@ -186,32 +187,34 @@ CASAuthentication.prototype.bounce = async function(ctx, next) {
  * already validated with CAS, their request will be redirected to the CAS
  * login page.
  */
-CASAuthentication.prototype.bounce_redirect = async function(ctx, next) {
+CASAuthentication.prototype.bounce_redirect = async function(ctx) {
 
     // Handle the request with the bounce authorization type.
-    await this._handle(ctx, next, AUTH_TYPE.BOUNCE_REDIRECT);
+    return this._handle(ctx, AUTH_TYPE.BOUNCE_REDIRECT);
 };
 
 /**
  * Blocks a request with CAS authentication. If the user's session is not
  * already validated with CAS, they will receive a 401 response.
  */
-CASAuthentication.prototype.block = async function(ctx, next) {
+CASAuthentication.prototype.block = async function(ctx) {
 
     // Handle the request with the block authorization type.
-    await this._handle(ctx, next, AUTH_TYPE.BLOCK);
+    return this._handle(ctx, AUTH_TYPE.BLOCK);
 };
 
 /**
  * Handle a request with CAS authentication.
  */
-CASAuthentication.prototype._handle = async function(ctx, next, authType) {
+CASAuthentication.prototype._handle = async function(ctx, authType) {
 
     // If the session has been validated with CAS, no action is required.
     if (ctx.session[ this.session_name ]) {
         // If this is a bounce redirect, redirect the authenticated user.
         if (authType === AUTH_TYPE.BOUNCE_REDIRECT) {
-            await ctx.redirect(ctx.session.cas_return_to);
+            ctx.redirect(ctx.session.cas_return_to);
+        } else {
+            return true;
         }
     }
     // If dev mode is active, set the CAS user to the specified dev user.
@@ -221,22 +224,24 @@ CASAuthentication.prototype._handle = async function(ctx, next, authType) {
     }
     // If the authentication type is BLOCK, simply send a 401 response.
     else if (authType === AUTH_TYPE.BLOCK) {
-        ctx.sendStatus(401);
+        ctx.body = {
+            status_code: 401
+        }
     }
     // If there is a CAS ticket in the query string, validate it with the CAS server.
     else if (ctx.query && ctx.query.ticket) {
-        await this._handleTicket(ctx, next);
+        await this._handleTicket(ctx);
     }
     // Otherwise, redirect the user to the CAS login.
     else {
-        await this._login(ctx, next);
+        await this._login(ctx);
     }
 };
 
 /**
  * Redirects the client to the CAS login.
  */
-CASAuthentication.prototype._login = async function(ctx, next) {
+CASAuthentication.prototype._login = async function(ctx) {
 
     // Save the return URL in the session. If an explicit return URL is set as a
     // query parameter, use that. Otherwise, just use the URL from the request.
@@ -244,12 +249,12 @@ CASAuthentication.prototype._login = async function(ctx, next) {
 
     // Set up the query parameters.
     var query = {
-        service: (this.service_url || ctx.host) + url.parse(ctx.url).pathname,
+        service: (this.service_url || `https://${ctx.host}`) + url.parse(ctx.url).pathname,
         renew: this.renew
     };
 
     // Redirect to the CAS login.
-    await ctx.redirect( this.cas_url + url.format({
+    ctx.redirect( this.cas_url + url.format({
         pathname: '/login',
         query: query
     }));
@@ -258,7 +263,7 @@ CASAuthentication.prototype._login = async function(ctx, next) {
 /**
  * Logout the currently logged in CAS user.
  */
-CASAuthentication.prototype.logout = async function(ctx, next) {
+CASAuthentication.prototype.logout = async function(ctx) {
 
     // Destroy the entire session if the option is set.
     if (this.destroy_session) {
@@ -283,7 +288,7 @@ CASAuthentication.prototype.logout = async function(ctx, next) {
 /**
  * Handles the ticket generated by the CAS login requester and validates it with the CAS login acceptor.
  */
-CASAuthentication.prototype._handleTicket = async function(ctx, next) {
+CASAuthentication.prototype._handleTicket = async function(ctx) {
 
     var requestOptions = {
         host: this.cas_host,
@@ -295,7 +300,7 @@ CASAuthentication.prototype._handleTicket = async function(ctx, next) {
         requestOptions.path = url.format({
             pathname: this.cas_path + this._validateUri,
             query: {
-                service: (this.service_url || ctx.host) + url.parse(ctx.url).pathname,
+                service: (this.service_url || `https://${ctx.host}`) + url.parse(ctx.url).pathname,
                 ticket: ctx.query.ticket
             }
         });
@@ -320,7 +325,7 @@ CASAuthentication.prototype._handleTicket = async function(ctx, next) {
         requestOptions.path = url.format({
             pathname: this.cas_path + this._validateUri,
             query : {
-                TARGET : (this.service_url || ctx.host) + url.parse(ctx.url).pathname,
+                TARGET : (this.service_url || `https://${ctx.host}`) + url.parse(ctx.url).pathname,
                 ticket: ''
             }
         });
@@ -329,46 +334,58 @@ CASAuthentication.prototype._handleTicket = async function(ctx, next) {
             'Content-Length': Buffer.byteLength(post_data)
         };
     }
-
     return new Promise((resolve, reject) => {
         var request = this.request_client.request(requestOptions, function(response) {
             response.setEncoding( 'utf8' );
             var body = '';
+    
             response.on( 'data', function(chunk) {
                 return body += chunk;
             }.bind(this));
+    
             response.on('end', function() {
                 this._validate(body, function(err, user, attributes) {
                     if (err) {
                         console.log(err);
-                        ctx.sendStatus(401);
+                        reject();
+                        ctx.body = {
+                            status_code: 401
+                        }
                     }
                     else {
                         ctx.session[ this.session_name ] = user;
                         if (this.session_info) {
                             ctx.session[ this.session_info ] = attributes || {};
                         }
-                        await ctx.redirect(ctx.session.cas_return_to);
+                        resolve();
+                        ctx.redirect(ctx.session.cas_return_to);
                     }
                 }.bind(this));
             }.bind(this));
+    
             response.on('error', function(err) {
                 console.log('Response error from CAS: ', err);
-                ctx.sendStatus(401);
+                reject();
+                ctx.body = {
+                    status_code: 401
+                }
             }.bind(this));
         }.bind(this));
     
         request.on('error', function(err) {
             console.log('Request error with CAS: ', err);
-            ctx.sendStatus(401);
+            reject();
+            ctx.body = {
+            status_code: 401
+        }
         }.bind(this));
     
         if (this.cas_version === 'saml1.1') {
             request.write(post_data);
         }
+
         request.end();
-    });
-    
+    })
 };
 
 module.exports = CASAuthentication;
