@@ -2,11 +2,11 @@
 
     npm install koa-authentication
 
-## Usage
+## Document
 
     This library is based on cas-authentication, and the interface is the same. You can refer to that documwnt.
 
-## usage
+## Usage
 
 ````javascript
 // variable declaration
